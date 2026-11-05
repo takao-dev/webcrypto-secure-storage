@@ -1,0 +1,59 @@
+{
+  "name": "webcrypto-secure-storage",
+  "version": "1.0.0",
+  "description": "Zero-dependency browser encrypted storage using non-extractable Web Crypto AES-256-GCM keys in IndexedDB, multi-tab race arbitration, PBKDF2-SHA512 password stretching, and Ed25519 manifest signature verification.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./password": {
+      "types": "./dist/password.d.ts",
+      "default": "./dist/password.js"
+    },
+    "./signature": {
+      "types": "./dist/update-signature.d.ts",
+      "default": "./dist/update-signature.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "sideEffects": false,
+  "keywords": [
+    "webcrypto",
+    "indexeddb",
+    "encrypted-storage",
+    "secure-storage",
+    "aes-gcm",
+    "non-extractable",
+    "xss-protection",
+    "pbkdf2",
+    "ed25519"
+  ],
+  "author": "takaodev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/takaodev/webcrypto-secure-storage.git"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
