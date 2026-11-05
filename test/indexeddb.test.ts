@@ -15,6 +15,14 @@ type AddConflict = { storeName: string; key: string; winningKey: CryptoKey | nul
 class MemoryStorage {
   private readonly values = new Map<string, string>();
 
+  get length(): number {
+    return this.values.size;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.values.keys())[index] ?? null;
+  }
+
   getItem(key: string): string | null {
     return this.values.get(key) ?? null;
   }
@@ -25,6 +33,10 @@ class MemoryStorage {
 
   removeItem(key: string): void {
     this.values.delete(key);
+  }
+
+  clear(): void {
+    this.values.clear();
   }
 }
 
@@ -176,6 +188,12 @@ const mockIndexedDB = {
                 delete: (key: unknown) =>
                   run('delete', () => {
                     rows.delete(String(key));
+                    return undefined;
+                  }),
+                getAllKeys: () => run('getAllKeys', () => Array.from(rows.keys())),
+                clear: () =>
+                  run('clear', () => {
+                    rows.clear();
                     return undefined;
                   }),
               };
@@ -356,5 +374,84 @@ describe('SharedSecureStorage with IndexedDB', () => {
     rowsFor('secure_data').set('corrupt-json', encrypted);
 
     assert.equal(await storage.getItem('corrupt-json'), null);
+  });
+
+  it('supports TTL with automatic expiration and cleanup', async () => {
+    const storage = new SharedSecureStorage('ttl-test-key');
+    await storage.setItem('short_lived', { token: 'xyz' }, { ttlMs: 30 });
+    await storage.setItem('long_lived', { token: 'abc' }, { ttlMs: 10000 });
+
+    // Immediately available
+    assert.deepEqual(await storage.getItem('short_lived'), { token: 'xyz' });
+    const meta = await storage.getMetadata('short_lived');
+    assert.ok(meta);
+    assert.equal(meta.expired, false);
+    assert.ok(meta.expiresAt && meta.expiresAt > Date.now());
+
+    // Wait for TTL expiration
+    await new Promise((r) => setTimeout(r, 45));
+
+    // After expiration: returns null and cleans up
+    assert.equal(await storage.getItem('short_lived'), null);
+    // Long-lived item still present
+    assert.deepEqual(await storage.getItem('long_lived'), { token: 'abc' });
+  });
+
+  it('lists keys, clears storage, and purges expired items', async () => {
+    const storage = new SharedSecureStorage('mgmt-key');
+    await storage.setItem('item1', 'v1');
+    await storage.setItem('item2', 'v2', { ttlMs: 20 });
+    await storage.setItem('item3', 'v3');
+
+    const keyList = await storage.keys();
+    assert.equal(keyList.length, 3);
+    assert.ok(keyList.includes('item1'));
+    assert.ok(keyList.includes('item2'));
+
+    // Wait for item2 to expire
+    await new Promise((r) => setTimeout(r, 35));
+
+    const purgedCount = await storage.purgeExpired();
+    assert.equal(purgedCount, 1);
+    const keysAfterPurge = await storage.keys();
+    assert.equal(keysAfterPurge.length, 2);
+    assert.ok(!keysAfterPurge.includes('item2'));
+
+    // Clear all
+    await storage.clear();
+    assert.equal((await storage.keys()).length, 0);
+  });
+
+  it('exports and imports encrypted backup bundles with passphrase', async () => {
+    const storage = new SharedSecureStorage('bundle-key');
+    await storage.setItem('setting1', 'alpha');
+    await storage.setItem('setting2', { mode: 'dark', level: 42 });
+
+    const bundle = await storage.exportEncryptedBundle('super-secret-passphrase');
+    assert.ok(bundle.startsWith('v1_bundle.'));
+
+    // Clear and restore into fresh instance
+    await storage.clear();
+    assert.equal(await storage.getItem('setting1'), null);
+
+    const imported = await storage.importEncryptedBundle(bundle, 'super-secret-passphrase');
+    assert.equal(imported, 2);
+    assert.equal(await storage.getItem('setting1'), 'alpha');
+    assert.deepEqual(await storage.getItem('setting2'), { mode: 'dark', level: 42 });
+
+    // Wrong passphrase throws error
+    await assert.rejects(
+      () => storage.importEncryptedBundle(bundle, 'wrong-passphrase'),
+      /operation failed|OperationError|decrypt/i
+    );
+  });
+
+  it('executes callbacks safely within withLock', async () => {
+    const storage = new SharedSecureStorage('lock-key');
+    const result = await storage.withLock(async () => {
+      await storage.setItem('locked_val', 'safe');
+      return await storage.getItem('locked_val');
+    });
+    assert.equal(result, 'safe');
   });
 });

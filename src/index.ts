@@ -136,6 +136,40 @@ async function removeStoredData(key: string, dbName: string): Promise<void> {
   }
 }
 
+async function getAllStoredDataKeys(dbName: string): Promise<string[]> {
+  try {
+    const db = await openKeyDB(dbName);
+    return new Promise((resolve) => {
+      const transaction = db.transaction(DATA_STORE_NAME, 'readonly');
+      const store = transaction.objectStore(DATA_STORE_NAME);
+      const request = store.getAllKeys();
+      waitForRequestAndTransaction(request, transaction).then(
+        (keys) => resolve(((keys as unknown[]) || []).map((k) => String(k))),
+        () => resolve([])
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function clearStoredData(dbName: string): Promise<void> {
+  try {
+    const db = await openKeyDB(dbName);
+    return new Promise((resolve) => {
+      const transaction = db.transaction(DATA_STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(DATA_STORE_NAME);
+      const request = store.clear();
+      waitForRequestAndTransaction(request, transaction).then(
+        () => resolve(),
+        () => resolve()
+      );
+    });
+  } catch {
+    return;
+  }
+}
+
 async function getStoredCryptoKey(keyName: string, dbName: string): Promise<CryptoKey | null> {
   try {
     const db = await openKeyDB(dbName);
@@ -199,6 +233,26 @@ export class CryptoUnavailableError extends Error {
   }
 }
 
+export interface SetItemOptions {
+  /**
+   * Time-to-live in milliseconds. After this duration has passed,
+   * getItem() will automatically remove the item and return null.
+   */
+  ttlMs?: number;
+}
+
+export interface StorageItemMetadata<T> {
+  value: T;
+  expiresAt: number | null;
+  expired: boolean;
+}
+
+interface StorageEnvelope<T = unknown> {
+  __v: 1;
+  d: T;
+  exp?: number;
+}
+
 export interface SharedSecureStorageOptions {
   /**
    * Temporary compatibility switch for migrating an old localStorage-only
@@ -206,9 +260,13 @@ export interface SharedSecureStorageOptions {
    */
   allowLegacyLocalStorageKeyFallback?: boolean;
   /**
-   * Custom IndexedDB database name (defaults to 'hl_secure_key_db').
+   * Custom IndexedDB database name (defaults to 'webcrypto_secure_key_db').
    */
   databaseName?: string;
+}
+
+export interface ImportBundleOptions {
+  overwrite?: boolean;
 }
 
 export class SharedSecureStorage {
@@ -388,8 +446,13 @@ export class SharedSecureStorage {
     }
   }
 
-  public async setItem(key: string, value: unknown): Promise<void> {
-    const json = JSON.stringify(value);
+  public async setItem(key: string, value: unknown, options?: SetItemOptions): Promise<void> {
+    const envelope: StorageEnvelope = {
+      __v: 1,
+      d: value,
+      ...(options?.ttlMs && options.ttlMs > 0 ? { exp: Date.now() + options.ttlMs } : {}),
+    };
+    const json = JSON.stringify(envelope);
     const encrypted = await this.encrypt(json);
 
     if (typeof indexedDB !== 'undefined') {
@@ -410,6 +473,16 @@ export class SharedSecureStorage {
   }
 
   public async getItem<T>(key: string): Promise<T | null> {
+    const meta = await this.getMetadata<T>(key);
+    if (!meta) return null;
+    if (meta.expired) {
+      await this.removeItem(key);
+      return null;
+    }
+    return meta.value;
+  }
+
+  public async getMetadata<T>(key: string): Promise<StorageItemMetadata<T> | null> {
     let encrypted: string | null = null;
 
     if (typeof indexedDB !== 'undefined') {
@@ -436,7 +509,24 @@ export class SharedSecureStorage {
     const decrypted = await this.decrypt(encrypted);
     if (!decrypted) return null;
     try {
-      return JSON.parse(decrypted) as T;
+      const parsed = JSON.parse(decrypted) as unknown;
+      // Check if wrapped in StorageEnvelope
+      if (parsed && typeof parsed === 'object' && '__v' in parsed && 'd' in parsed) {
+        const env = parsed as StorageEnvelope<T>;
+        const expiresAt = typeof env.exp === 'number' ? env.exp : null;
+        const expired = Boolean(expiresAt && Date.now() > expiresAt);
+        return {
+          value: env.d,
+          expiresAt,
+          expired,
+        };
+      }
+      // Backward-compatible for raw stored JSON
+      return {
+        value: parsed as T,
+        expiresAt: null,
+        expired: false,
+      };
     } catch (error) {
       console.warn(`[SecureStorage] Ignoring corrupted value for ${key}`, error);
       return null;
@@ -450,6 +540,128 @@ export class SharedSecureStorage {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(`s_${key}`);
     }
+  }
+
+  public async clear(): Promise<void> {
+    if (typeof indexedDB !== 'undefined') {
+      await clearStoredData(this.databaseName);
+    }
+    if (typeof localStorage !== 'undefined') {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith('s_')) keysToRemove.push(k);
+      }
+      for (const k of keysToRemove) {
+        localStorage.removeItem(k);
+      }
+    }
+  }
+
+  public async keys(): Promise<string[]> {
+    const keySet = new Set<string>();
+    if (typeof indexedDB !== 'undefined') {
+      const idbKeys = await getAllStoredDataKeys(this.databaseName);
+      for (const k of idbKeys) keySet.add(k);
+    }
+    if (typeof localStorage !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith('s_')) {
+          keySet.add(k.slice(2));
+        }
+      }
+    }
+    return Array.from(keySet);
+  }
+
+  public async purgeExpired(): Promise<number> {
+    const allKeys = await this.keys();
+    let purged = 0;
+    for (const key of allKeys) {
+      const meta = await this.getMetadata(key);
+      if (meta?.expired) {
+        await this.removeItem(key);
+        purged++;
+      }
+    }
+    return purged;
+  }
+
+  public async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const lockName = `webcrypto_secure_storage:${this.databaseName}`;
+    const nav = typeof navigator !== 'undefined' ? (navigator as unknown as { locks?: { request?: (name: string, cb: () => Promise<T>) => Promise<T> } }) : undefined;
+    if (nav?.locks?.request) {
+      return nav.locks.request(lockName, () => fn());
+    }
+    return fn();
+  }
+
+  public async exportEncryptedBundle(passphrase: string): Promise<string> {
+    if (!passphrase) throw new Error('Passphrase is required to export bundle');
+    const allKeys = await this.keys();
+    const bundleData: Record<string, unknown> = {};
+    for (const k of allKeys) {
+      const val = await this.getItem(k);
+      if (val !== null) bundleData[k] = val;
+    }
+
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const enc = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+    const derivedKey = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-512' },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt']
+    );
+
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const payloadBytes = enc.encode(JSON.stringify(bundleData));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, derivedKey, payloadBytes);
+
+    return `v1_bundle.${bytesToBase64(salt)}.${bytesToBase64(iv)}.${bytesToBase64(new Uint8Array(ciphertext))}`;
+  }
+
+  public async importEncryptedBundle(
+    bundleString: string,
+    passphrase: string,
+    options?: ImportBundleOptions
+  ): Promise<number> {
+    if (!bundleString || !passphrase) throw new Error('Bundle string and passphrase are required');
+    const parts = bundleString.split('.');
+    if (parts.length !== 4 || parts[0] !== 'v1_bundle') {
+      throw new Error('Invalid bundle format or unsupported version');
+    }
+    const salt = Uint8Array.from(atob(parts[1]), (c) => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(parts[2]), (c) => c.charCodeAt(0));
+    const ciphertext = Uint8Array.from(atob(parts[3]), (c) => c.charCodeAt(0));
+
+    const enc = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+    const derivedKey = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-512' },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt']
+    );
+
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, derivedKey, ciphertext);
+    const data = JSON.parse(new TextDecoder().decode(decrypted)) as Record<string, unknown>;
+
+    let imported = 0;
+    const overwrite = options?.overwrite !== false;
+    for (const [key, val] of Object.entries(data)) {
+      if (!overwrite) {
+        const existing = await this.getItem(key);
+        if (existing !== null) continue;
+      }
+      await this.setItem(key, val);
+      imported++;
+    }
+    return imported;
   }
 }
 

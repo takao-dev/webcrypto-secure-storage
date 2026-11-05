@@ -51,14 +51,14 @@ import { SecureStorage } from 'webcrypto-secure-storage';
 // Initialize storage with a master key name
 const storage = new SecureStorage('my-app-auth-key');
 
-// Store sensitive user profile or credentials
+// Store sensitive user profile or credentials (with optional TTL auto-expiration)
 await storage.setItem('auth_session', {
   userId: 'usr_98124',
   token: 'secret-auth-token',
   role: 'admin',
-});
+}, { ttlMs: 1000 * 60 * 60 }); // Auto-expires after 1 hour
 
-// Retrieve typed data (returns null if absent or corrupted)
+// Retrieve typed data (returns null and auto-purges if expired or absent)
 interface Session {
   userId: string;
   token: string;
@@ -66,6 +66,26 @@ interface Session {
 }
 const session = await storage.getItem<Session>('auth_session');
 console.log(session?.userId); // 'usr_98124'
+
+// Inspect item metadata (expiration timestamp and status)
+const meta = await storage.getMetadata<Session>('auth_session');
+console.log(meta?.expiresAt, meta?.expired);
+
+// Key management, clearing and expired item purging
+const allKeys = await storage.keys();
+const purgedCount = await storage.purgeExpired();
+// await storage.clear();
+
+// Multi-tab atomic coordination via Web Locks API
+await storage.withLock(async () => {
+  const current = (await storage.getItem<number>('counter')) ?? 0;
+  await storage.setItem('counter', current + 1);
+});
+
+// Passphrase-encrypted backup bundle export and import
+const backupBundle = await storage.exportEncryptedBundle('super-secret-passphrase');
+// In another tab or after restore:
+await storage.importEncryptedBundle(backupBundle, 'super-secret-passphrase');
 
 // Remove item
 await storage.removeItem('auth_session');
