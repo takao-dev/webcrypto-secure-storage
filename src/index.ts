@@ -1,5 +1,5 @@
 import { deriveClientPasswordHash } from './password.js';
-import { verifyEd25519ManifestSignature } from './update-signature.js';
+import { verifyEd25519ManifestSignature, base64ToBytes } from './update-signature.js';
 
 export { CLIENT_PBKDF2_ROUNDS, deriveClientPasswordHash } from './password.js';
 export {
@@ -634,9 +634,20 @@ export class SharedSecureStorage {
     if (parts.length !== 4 || parts[0] !== 'v1_bundle') {
       throw new Error('Invalid bundle format or unsupported version');
     }
-    const salt = Uint8Array.from(atob(parts[1]), (c) => c.charCodeAt(0));
-    const iv = Uint8Array.from(atob(parts[2]), (c) => c.charCodeAt(0));
-    const ciphertext = Uint8Array.from(atob(parts[3]), (c) => c.charCodeAt(0));
+    let salt: Uint8Array<ArrayBuffer>;
+    let iv: Uint8Array<ArrayBuffer>;
+    let ciphertext: Uint8Array<ArrayBuffer>;
+    try {
+      salt = base64ToBytes(parts[1]);
+      iv = base64ToBytes(parts[2]);
+      ciphertext = base64ToBytes(parts[3]);
+    } catch {
+      throw new Error('Corrupted or invalid Base64 in bundle envelope');
+    }
+
+    if (salt.length < 16 || iv.length !== 12 || ciphertext.length < 16) {
+      throw new Error('Invalid cryptographic envelope boundaries');
+    }
 
     const enc = new TextEncoder();
     const baseKey = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
@@ -649,7 +660,12 @@ export class SharedSecureStorage {
     );
 
     const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, derivedKey, ciphertext);
-    const data = JSON.parse(new TextDecoder().decode(decrypted)) as Record<string, unknown>;
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(new TextDecoder().decode(decrypted)) as Record<string, unknown>;
+    } catch {
+      throw new Error('Decrypted bundle payload is not valid JSON');
+    }
 
     let imported = 0;
     const overwrite = options?.overwrite !== false;
