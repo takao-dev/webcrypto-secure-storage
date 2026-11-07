@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -36,6 +38,13 @@ jobs:
 
       - name: Compile TypeScript
         run: npm run build
+
+      - name: Codecov Bundle Analysis
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.x'
+        env:
+          BUNDLE_ANALYZER_UPLOAD_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          npx --yes @codecov/bundle-analyzer ./dist --bundle-name=${{ github.event.repository.name }} || true
 
       - name: Run test suite (with coverage)
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.x'
@@ -51,6 +60,15 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
+      - name: Upload test results to Codecov (Test Analytics)
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' && matrix.node-version == '22.x' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          report-type: test_results
+          files: ./coverage/junit.xml
           fail_ci_if_error: false
 
       - name: Verify package packaging integrity
