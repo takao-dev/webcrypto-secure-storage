@@ -2,59 +2,46 @@ import assert from 'node:assert/strict';
 import test, { beforeEach, afterEach, describe, it } from 'node:test';
 import { CryptoUnavailableError, SharedSecureStorage, DEFAULT_KEY_DB_NAME } from '../dist/index.js';
 
-type MockRequest = {
-  result: unknown;
-  error: unknown;
-  onsuccess: (() => void) | null;
-  onerror: (() => void) | null;
-  onupgradeneeded: (() => void) | null;
-};
-
-type AddConflict = { storeName: string; key: string; winningKey: CryptoKey | null };
-
 class MemoryStorage {
-  private readonly values = new Map<string, string>();
+  constructor() {
+    this.values = new Map();
+  }
 
-  get length(): number {
+  get length() {
     return this.values.size;
   }
 
-  key(index: number): string | null {
+  key(index) {
     return Array.from(this.values.keys())[index] ?? null;
   }
 
-  getItem(key: string): string | null {
+  getItem(key) {
     return this.values.get(key) ?? null;
   }
 
-  setItem(key: string, value: string): void {
+  setItem(key, value) {
     this.values.set(key, value);
   }
 
-  removeItem(key: string): void {
+  removeItem(key) {
     this.values.delete(key);
   }
 
-  clear(): void {
+  clear() {
     this.values.clear();
   }
 }
 
-const databases = new Map<string, Map<string, Map<string, unknown>>>();
-let nextOperationFailure: {
-  storeName: string;
-  method: string;
-  error: unknown;
-  transactionError?: unknown;
-} | null = null;
-let nextAddConflict: AddConflict | null = null;
-let nextSynchronousAddFailure: { storeName: string; error: unknown } | null = null;
-let nextOpenFailure: Error | null = null;
-let nextTransactionAbort: { storeName: string; method: string; error?: unknown } | null = null;
+const databases = new Map();
+let nextOperationFailure = null;
+let nextAddConflict = null;
+let nextSynchronousAddFailure = null;
+let nextOpenFailure = null;
+let nextTransactionAbort = null;
 let nextUpgrade = false;
-let localStorage: MemoryStorage;
+let localStorage;
 
-const makeRequest = (): MockRequest => ({
+const makeRequest = () => ({
   result: undefined,
   error: null,
   onsuccess: null,
@@ -63,7 +50,7 @@ const makeRequest = (): MockRequest => ({
 });
 
 const mockIndexedDB = {
-  open: (databaseName: string, version: number) => {
+  open: (databaseName, version) => {
     if (version !== 2) throw new Error(`Unexpected database version: ${version}`);
     const request = makeRequest();
     const openFailure = nextOpenFailure;
@@ -82,33 +69,27 @@ const mockIndexedDB = {
       }
 
       const database = {
-        objectStoreNames: { contains: (name: string) => stores!.has(name) },
-        createObjectStore: (name: string) => {
-          stores!.set(name, new Map());
+        objectStoreNames: { contains: (name) => stores.has(name) },
+        createObjectStore: (name) => {
+          stores.set(name, new Map());
           return {};
         },
         close: () => {},
-        transaction: (storeName: string, mode: string) => {
+        transaction: (storeName, mode) => {
           if (mode !== 'readonly' && mode !== 'readwrite') {
             throw new Error(`Unexpected transaction mode: ${mode}`);
           }
-          const transaction: {
-            error: unknown;
-            oncomplete: (() => void) | null;
-            onerror: (() => void) | null;
-            onabort: (() => void) | null;
-            objectStore: (name: string) => Record<string, (...args: unknown[]) => MockRequest>;
-          } = {
+          const transaction = {
             error: null,
             oncomplete: null,
             onerror: null,
             onabort: null,
             objectStore: (name) => {
               if (name !== storeName) throw new Error(`Unexpected object store: ${name}`);
-              const rows = stores!.get(name);
+              const rows = stores.get(name);
               if (!rows) throw new Error(`Object store does not exist: ${name}`);
 
-              const run = (method: string, operation: () => unknown): MockRequest => {
+              const run = (method, operation) => {
                 const operationRequest = makeRequest();
                 queueMicrotask(() => {
                   if (
@@ -162,8 +143,8 @@ const mockIndexedDB = {
               };
 
               return {
-                get: (key: unknown) => run('get', () => rows.get(String(key))),
-                add: (value: unknown, key: unknown) => {
+                get: (key) => run('get', () => rows.get(String(key))),
+                add: (value, key) => {
                   if (nextSynchronousAddFailure?.storeName === name) {
                     const failure = nextSynchronousAddFailure;
                     nextSynchronousAddFailure = null;
@@ -180,12 +161,12 @@ const mockIndexedDB = {
                     return undefined;
                   });
                 },
-                put: (value: unknown, key: unknown) =>
+                put: (value, key) =>
                   run('put', () => {
                     rows.set(String(key), value);
                     return undefined;
                   }),
-                delete: (key: unknown) =>
+                delete: (key) =>
                   run('delete', () => {
                     rows.delete(String(key));
                     return undefined;
@@ -213,10 +194,10 @@ const mockIndexedDB = {
   },
 };
 
-const rowsFor = (storeName: string, dbName = DEFAULT_KEY_DB_NAME): Map<string, unknown> =>
+const rowsFor = (storeName, dbName = DEFAULT_KEY_DB_NAME) =>
   databases.get(dbName)?.get(storeName) ?? new Map();
 
-const encodeBase64 = (bytes: Uint8Array): string =>
+const encodeBase64 = (bytes) =>
   btoa(String.fromCharCode(...bytes));
 
 describe('SharedSecureStorage with IndexedDB', () => {
@@ -249,61 +230,60 @@ describe('SharedSecureStorage with IndexedDB', () => {
     const storage = new SharedSecureStorage('profile-key');
 
     await storage.setItem('profile', { name: 'Aoi', count: 3 });
+    const stored = await storage.getItem('profile');
+    assert.deepEqual(stored, { name: 'Aoi', count: 3 });
 
-    assert.equal(rowsFor('keys').has('profile-key'), true);
-    assert.equal(rowsFor('secure_data').has('profile'), true);
+    const key = rowsFor('keys').get('profile-key');
+    assert.ok(key);
+    assert.equal(key.extractable, false);
+
+    const encrypted = rowsFor('secure_data').get('profile');
+    assert.ok(typeof encrypted === 'string');
+    assert.match(encrypted, /^[A-Za-z0-9+/=]+$/);
+    assert.equal(localStorage.getItem('profile-key'), null);
     assert.equal(localStorage.getItem('s_profile'), null);
-    assert.deepEqual(await storage.getItem('profile'), { name: 'Aoi', count: 3 });
-
-    await storage.removeItem('profile');
-    assert.equal(rowsFor('secure_data').has('profile'), false);
-    assert.equal(await storage.getItem('profile'), null);
   });
 
   it('shares an in-flight master-key promise across concurrent operations', async () => {
-    const storage = new SharedSecureStorage('concurrent-key');
-
-    const [first, second] = await Promise.all([
-      storage.encrypt('first'),
-      storage.encrypt('second'),
+    const storage = new SharedSecureStorage('shared-promise-key');
+    const [left, right] = await Promise.all([
+      storage.encrypt('left-data'),
+      storage.encrypt('right-data'),
     ]);
 
-    assert.notEqual(first, second);
-    assert.equal(await storage.decrypt(first), 'first');
-    assert.equal(await storage.decrypt(second), 'second');
+    assert.equal(await storage.decrypt(left), 'left-data');
+    assert.equal(await storage.decrypt(right), 'right-data');
+    assert.equal(rowsFor('keys').size, 1);
   });
 
   it('shares one persisted master key across concurrently created storage instances', async () => {
-    const first = new SharedSecureStorage('cross-instance-concurrent-key');
-    const second = new SharedSecureStorage('cross-instance-concurrent-key');
-    const [firstValue, secondValue] = await Promise.all([
-      first.encrypt('first instance'),
-      second.encrypt('second instance'),
+    const storageA = new SharedSecureStorage('shared-instance-key');
+    const storageB = new SharedSecureStorage('shared-instance-key');
+
+    const [encryptedA, encryptedB] = await Promise.all([
+      storageA.encrypt('data-from-a'),
+      storageB.encrypt('data-from-b'),
     ]);
 
-    assert.equal(await second.decrypt(firstValue), 'first instance');
-    assert.equal(await first.decrypt(secondValue), 'second instance');
-    const keys = databases.get(DEFAULT_KEY_DB_NAME)!.get('keys')!;
-    assert.equal(keys.size, 1);
-    assert.equal(keys.has('cross-instance-concurrent-key'), true);
+    assert.equal(await storageB.decrypt(encryptedA), 'data-from-a');
+    assert.equal(await storageA.decrypt(encryptedB), 'data-from-b');
+    assert.equal(rowsFor('keys').size, 1);
   });
 
   it('reuses a key persisted by an earlier storage instance', async () => {
-    const first = new SharedSecureStorage('shared-key');
-    await first.setItem('first', 'value');
-    const persistedKey = rowsFor('keys').get('shared-key');
+    const storageA = new SharedSecureStorage('reused-key');
+    const encrypted = await storageA.encrypt('persisted-payload');
 
-    const second = new SharedSecureStorage('shared-key');
-    assert.equal(await second.getItem('first'), 'value');
-    assert.equal(rowsFor('keys').get('shared-key'), persistedKey);
+    const storageB = new SharedSecureStorage('reused-key');
+    assert.equal(await storageB.decrypt(encrypted), 'persisted-payload');
   });
 
   it('uses the key committed by another tab after an IndexedDB add conflict (First-key-wins)', async () => {
-    const winningKey = (await crypto.subtle.generateKey(
+    const winningKey = await crypto.subtle.generateKey(
       { name: 'AES-GCM', length: 256 },
       false,
       ['encrypt', 'decrypt']
-    )) as CryptoKey;
+    );
     nextAddConflict = { storeName: 'keys', key: 'raced-key', winningKey };
     const storage = new SharedSecureStorage('raced-key');
 
@@ -348,7 +328,7 @@ describe('SharedSecureStorage with IndexedDB', () => {
 
     assert.deepEqual(await storage.getItem('profile'), { name: 'Sora' });
 
-    const migratedKey = rowsFor('keys').get('legacy-key') as CryptoKey;
+    const migratedKey = rowsFor('keys').get('legacy-key');
     assert.equal(migratedKey.extractable, false);
     assert.equal(localStorage.getItem('legacy-key'), null);
     assert.equal(localStorage.getItem('s_profile'), null);

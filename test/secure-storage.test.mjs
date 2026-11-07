@@ -7,18 +7,19 @@ import {
   hashPasswordClient,
   SharedSecureStorage,
   verifyUpdateManifestSignature,
-  type UpdateCheckResponse,
 } from '../dist/index.js';
 
 class MemoryStorage {
-  private readonly values = new Map<string, string>();
-  getItem(key: string): string | null {
+  constructor() {
+    this.values = new Map();
+  }
+  getItem(key) {
     return this.values.get(key) ?? null;
   }
-  setItem(key: string, value: string): void {
+  setItem(key, value) {
     this.values.set(key, value);
   }
-  removeItem(key: string): void {
+  removeItem(key) {
     this.values.delete(key);
   }
 }
@@ -50,10 +51,10 @@ test('client password derivation uses PBKDF2-SHA512 and normalizes login ID salt
 
 test('verifyUpdateManifestSignature verifies Ed25519 signatures and key rotation maps', async () => {
   const payload = { product: 'staff', version: '1.2.3', channel: 'production' };
-  const keyPair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+  const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
     'sign',
     'verify',
-  ])) as CryptoKeyPair;
+  ]);
   const publicKey = new Uint8Array(await crypto.subtle.exportKey('spki', keyPair.publicKey));
   const publicKeyPem = `-----BEGIN PUBLIC KEY-----\n${btoa(String.fromCharCode(...publicKey))}\n-----END PUBLIC KEY-----`;
   const signatureBytes = new Uint8Array(
@@ -65,7 +66,7 @@ test('verifyUpdateManifestSignature verifies Ed25519 signatures and key rotation
   );
   const signature = btoa(String.fromCharCode(...signatureBytes));
 
-  const response: UpdateCheckResponse = {
+  const response = {
     product: 'staff',
     channel: 'production',
     currentVersion: '1.2.2',
@@ -81,9 +82,9 @@ test('verifyUpdateManifestSignature verifies Ed25519 signatures and key rotation
     manifestKeyId: 'key-2026',
   };
 
-  let postedPayload: unknown = null;
+  let postedPayload = null;
   const api = {
-    async post(_url: string, body: unknown) {
+    async post(_url, body) {
       postedPayload = body;
       return { data: { verified: true } };
     },

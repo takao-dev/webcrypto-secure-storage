@@ -33,7 +33,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "pretest": "npm run build",
-    "test": "node --test test/*.test.ts",
+    "test": "node --test test/*.test.mjs",
     "prepack": "npm run build"
   },
   "sideEffects": false,
