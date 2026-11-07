@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
 import test, { beforeEach, afterEach, describe, it } from 'node:test';
+
+if (!globalThis.crypto) {
+  globalThis.crypto = webcrypto;
+}
+
 import { CryptoUnavailableError, SharedSecureStorage, DEFAULT_KEY_DB_NAME } from '../dist/index.js';
 
 class MemoryStorage {
