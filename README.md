@@ -195,4 +195,4 @@ npm test
 
 ## 📄 License
 
-MIT License © 2026 takaodev
+MIT License © 2026 takao-dev

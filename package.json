@@ -48,11 +48,11 @@
     "pbkdf2",
     "ed25519"
   ],
-  "author": "takaodev",
+  "author": "takao-dev",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/takaodev/webcrypto-secure-storage.git"
+    "url": "git+https://github.com/takao-dev/webcrypto-secure-storage.git"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

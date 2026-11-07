@@ -163,4 +163,4 @@ if (!isValid) {
 
 ## 📄 ライセンス
 
-MIT License © 2026 takaodev
+MIT License © 2026 takao-dev
