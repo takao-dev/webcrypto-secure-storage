@@ -1,6 +1,8 @@
 # webcrypto-secure-storage
 
 [![npm version](https://img.shields.io/npm/v/webcrypto-secure-storage.svg)](https://www.npmjs.com/package/webcrypto-secure-storage)
+[![CI](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/ci.yml/badge.svg)](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/codeql.yml/badge.svg)](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)]()
