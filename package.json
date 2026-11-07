@@ -1,6 +1,6 @@
 {
   "name": "webcrypto-secure-storage",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Zero-dependency browser encrypted storage using non-extractable Web Crypto AES-256-GCM keys in IndexedDB, multi-tab race arbitration, PBKDF2-SHA512 password stretching, and Ed25519 manifest signature verification.",
   "type": "module",
   "main": "./dist/index.js",
