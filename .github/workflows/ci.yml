@@ -32,7 +32,9 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci      - name: Run test suite (with coverage)
+        run: npm ci
+
+      - name: Run test suite (with coverage)
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22.x'
         run: npm run test:coverage
 
