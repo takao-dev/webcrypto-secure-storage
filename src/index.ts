@@ -772,6 +772,28 @@ async function verifyLocally(
   if (!verified) {
     throw new Error('Update manifest signature verification failed.');
   }
+  verifyManifestBinding(response);
+}
+
+function verifyManifestBinding(response: UpdateCheckResponse): void {
+  const payload = response.manifestPayload!;
+  const version = payload.latestVersion ?? payload.version;
+  if (typeof version !== 'string' || !version || version !== response.latestVersion ||
+      (payload.version !== undefined && payload.version !== version)) {
+    throw new Error('Signed manifest version does not match update response.');
+  }
+  for (const field of ['product', 'channel', 'downloadUrl', 'sha256', 'publishedAt'] as const) {
+    if (typeof payload[field] !== 'string' || !payload[field] || payload[field] !== response[field]) {
+      throw new Error(`Signed manifest ${field} does not match update response.`);
+    }
+  }
+  if (!/^[0-9a-f]{64}$/i.test(response.sha256)) throw new Error('Invalid signed artifact SHA-256.');
+  // Client currentVersion/updateAvailable are request context, not signed release claims.
+  for (const field of ['minSupportedVersion', 'graceUntil', 'forceUpdate', 'mustUpdateNow', 'notes', 'releaseNotes'] as const) {
+    if (response[field] !== payload[field]) {
+      throw new Error(`Signed manifest ${field} does not match update response.`);
+    }
+  }
 }
 
 async function verifyWithServer(
@@ -799,11 +821,13 @@ export async function verifyUpdateManifestSignature(
   response: UpdateCheckResponse,
   options: VerifyManifestOptions
 ): Promise<void> {
+  const snapshot = JSON.stringify(response);
   await verifyLocally(response, options);
 
   if (options.enableServerVerification !== false) {
     await verifyWithServer(updateApi, response);
   }
+  if (JSON.stringify(response) !== snapshot) throw new Error('Update response changed during verification.');
 }
 
 export async function hashPasswordClient(password: string, loginId: string): Promise<string> {

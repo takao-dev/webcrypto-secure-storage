@@ -56,7 +56,8 @@ test('client password derivation uses PBKDF2-SHA512 and normalizes login ID salt
 });
 
 test('verifyUpdateManifestSignature verifies Ed25519 signatures and key rotation maps', async () => {
-  const payload = { product: 'staff', version: '1.2.3', channel: 'production' };
+  const payload = { product: 'staff', version: '1.2.3', channel: 'production',
+    downloadUrl: '/download', sha256: 'a'.repeat(64), publishedAt: '2026-09-20T00:00:00.000Z', forceUpdate: false };
   const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
     'sign',
     'verify',
@@ -101,4 +102,26 @@ test('verifyUpdateManifestSignature verifies Ed25519 signatures and key rotation
     publicKeyMapJson: JSON.stringify({ 'key-2026': publicKeyPem }),
   });
   assert.ok(postedPayload);
+
+  for (const [field, value] of Object.entries({ downloadUrl: '/attacker', sha256: 'b'.repeat(64),
+    latestVersion: '9.9.9', product: 'other', channel: 'other', forceUpdate: true,
+    publishedAt: '2027-01-01', minSupportedVersion: '9', notes: 'unsigned' })) {
+    await assert.rejects(() => verifyUpdateManifestSignature(api, { ...response, [field]: value }, {
+      requireSignedManifest: true, fallbackPublicKey: publicKeyPem,
+    }), /does not match/);
+  }
+  const mutable = { ...response };
+  await assert.rejects(() => verifyUpdateManifestSignature({ async post() {
+    mutable.downloadUrl = '/changed-during-verification';
+    return { data: { verified: true } };
+  } }, mutable, { requireSignedManifest: true, fallbackPublicKey: publicKeyPem }), /changed during/);
+
+  // A genuine signature over only product/version/channel is no longer enough.
+  const incomplete = { product: 'staff', version: '1.2.3', channel: 'production' };
+  const incompleteSignature = Buffer.from(await crypto.subtle.sign('Ed25519', keyPair.privateKey,
+    new TextEncoder().encode(JSON.stringify(incomplete)))).toString('base64');
+  await assert.rejects(() => verifyUpdateManifestSignature(api, { ...response,
+    manifestPayload: incomplete, manifestSignature: incompleteSignature }, {
+    requireSignedManifest: true, fallbackPublicKey: publicKeyPem,
+  }), /does not match/);
 });

@@ -126,7 +126,7 @@ console.log(`リストア成功: ${importedCount} 件のアイテムを復元し
 ```typescript
 import { deriveClientPasswordHash } from 'webcrypto-secure-storage';
 
-// ログインIDをソルトとして正規化し、280,000回の PBKDF2-SHA512 でハッシュ化
+// ログインIDをソルトとして正規化し、100,000回の PBKDF2-SHA512 でハッシュ化
 const clientHash = await deriveClientPasswordHash('MySecretPassword123!', 'user@example.com');
 // -> サーバーにはこのハッシュ文字列を送信
 ```
@@ -134,6 +134,13 @@ const clientHash = await deriveClientPasswordHash('MySecretPassword123!', 'user@
 ---
 
 ### 5. Ed25519 マニフェスト電子署名検証 (`verifyEd25519ManifestSignature`)
+
+更新応答全体にはルートエクスポートの `verifyUpdateManifestSignature` を使用してください。
+署名対象には `product`、`channel`、`downloadUrl`、`sha256`、`publishedAt`、
+`latestVersion`（別名 `version`）、`forceUpdate` と、応答に含める追加の方針・表示項目が必要です。
+URLやハッシュが署名されていない部分署名は拒否します。[移行説明](SECURITY_CHANGES.md)も参照してください。
+以下の低レベル関数は渡したペイロードだけを検証します。ダウンロードした成果物のハッシュ、
+鮮度、バージョン巻き戻し防止は利用アプリケーションで検証してください。
 
 アプリケーションの自動アップデート時、改ざんされた悪意あるマニフェストが実行されないよう、公開鍵（PEM）で署名を高速検証します。
 
@@ -157,7 +164,7 @@ if (!isValid) {
 
 - **暗号アルゴリズム**: AES-256-GCM（256ビット鍵長、12バイトのランダムIV、16バイトの認証タグ）。
 - **IVの再利用防止**: 暗号化ごとに `crypto.getRandomValues(new Uint8Array(12))` を生成。IVの使い回しによる脆弱性を完全に排除。
-- **鍵の導出**: PBKDF2-SHA512（OWASP 推奨基準を満たす十分な反復回数と16バイト以上のクリプトソルト）。
+- **鍵の導出**: PBKDF2-SHA512（クライアント認証では正規化ログインIDをソルトに使用。保存用のパスワードハッシュやサーバー側検証の代わりにはなりません）。
 - **完全性検証**: GCM 認証タグにより、保存データが1ビットでも改ざんされた場合は復号が拒否され、`null` またはエラーとして安全に処理されます。
 
 ---

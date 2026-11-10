@@ -120,6 +120,13 @@ console.log(clientHash); // 128-character hex string
 
 ### 4. Ed25519 Manifest Signature Verification
 
+For complete update responses, use `verifyUpdateManifestSignature` from the root export.
+The signed payload must bind `product`, `channel`, `downloadUrl`, `sha256`, `publishedAt`,
+and `latestVersion` (or `version`), plus `forceUpdate` and any supplied policy/display fields.
+Unsigned sibling artifact fields and partially signed responses are rejected. See [migration details](SECURITY_CHANGES.md).
+The low-level function below authenticates only the payload passed to it. Check the downloaded
+artifact hash and enforce update freshness/anti-rollback in the consuming application.
+
 Verify software update manifests or remote configurations using Ed25519 public keys:
 
 ```typescript

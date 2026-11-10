@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import test, { beforeEach, afterEach, describe, it } from 'node:test';
+import { beforeEach, afterEach, describe, it } from 'node:test';
 
 if (!globalThis.crypto) {
   globalThis.crypto = webcrypto;
@@ -99,7 +99,8 @@ const mockIndexedDB = {
                 const operationRequest = makeRequest();
                 queueMicrotask(() => {
                   if (
-                    nextTransactionAbort?.storeName === name &&
+                    nextTransactionAbort &&
+                    nextTransactionAbort.storeName === name &&
                     nextTransactionAbort.method === method
                   ) {
                     transaction.error = nextTransactionAbort.error ?? null;
@@ -125,7 +126,7 @@ const mockIndexedDB = {
                     transaction.onerror?.();
                   } else {
                     try {
-                      if (method === 'add' && nextAddConflict?.storeName === name) {
+                      if (method === 'add' && nextAddConflict && nextAddConflict.storeName === name) {
                         if (nextAddConflict.winningKey) {
                           rows.set(nextAddConflict.key, nextAddConflict.winningKey);
                         }
@@ -151,7 +152,7 @@ const mockIndexedDB = {
               return {
                 get: (key) => run('get', () => rows.get(String(key))),
                 add: (value, key) => {
-                  if (nextSynchronousAddFailure?.storeName === name) {
+                  if (nextSynchronousAddFailure && nextSynchronousAddFailure.storeName === name) {
                     const failure = nextSynchronousAddFailure;
                     nextSynchronousAddFailure = null;
                     throw failure.error;
