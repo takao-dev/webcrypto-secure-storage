@@ -1,4 +1,4 @@
-# Unreleased update manifest verification change
+# Update manifest verification migration
 
 verifyUpdateManifestSignature keeps its Promise<void> API but now rejects signed update responses whose effective artifact fields differ from the signed payload.
 
