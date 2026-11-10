@@ -41,10 +41,6 @@ class MemoryStorage {
 const databases = new Map();
 let nextOperationFailure = null;
 let nextAddConflict = null;
-let nextSynchronousAddFailure = null;
-let nextOpenFailure = null;
-let nextTransactionAbort = null;
-let nextUpgrade = false;
 let localStorage;
 
 const makeRequest = () => ({
@@ -59,14 +55,7 @@ const mockIndexedDB = {
   open: (databaseName, version) => {
     if (version !== 2) throw new Error(`Unexpected database version: ${version}`);
     const request = makeRequest();
-    const openFailure = nextOpenFailure;
-    nextOpenFailure = null;
     queueMicrotask(() => {
-      if (openFailure) {
-        request.error = openFailure;
-        request.onerror?.();
-        return;
-      }
       let stores = databases.get(databaseName);
       const isNewDatabase = !stores;
       if (!stores) {
@@ -98,16 +87,6 @@ const mockIndexedDB = {
               const run = (method, operation) => {
                 const operationRequest = makeRequest();
                 queueMicrotask(() => {
-                  if (
-                    nextTransactionAbort &&
-                    nextTransactionAbort.storeName === name &&
-                    nextTransactionAbort.method === method
-                  ) {
-                    transaction.error = nextTransactionAbort.error ?? null;
-                    nextTransactionAbort = null;
-                    transaction.onabort?.();
-                    return;
-                  }
                   const operationFailure = nextOperationFailure;
                   if (
                     operationFailure &&
@@ -151,13 +130,8 @@ const mockIndexedDB = {
 
               return {
                 get: (key) => run('get', () => rows.get(String(key))),
-                add: (value, key) => {
-                  if (nextSynchronousAddFailure && nextSynchronousAddFailure.storeName === name) {
-                    const failure = nextSynchronousAddFailure;
-                    nextSynchronousAddFailure = null;
-                    throw failure.error;
-                  }
-                  return run('add', () => {
+                add: (value, key) =>
+                  run('add', () => {
                     const normalizedKey = String(key);
                     if (rows.has(normalizedKey)) {
                       const conflict = new Error('The key already exists.');
@@ -166,8 +140,7 @@ const mockIndexedDB = {
                     }
                     rows.set(normalizedKey, value);
                     return undefined;
-                  });
-                },
+                  }),
                 put: (value, key) =>
                   run('put', () => {
                     rows.set(String(key), value);
@@ -192,9 +165,7 @@ const mockIndexedDB = {
       };
 
       request.result = database;
-      const shouldUpgrade = isNewDatabase || nextUpgrade;
-      nextUpgrade = false;
-      if (shouldUpgrade) request.onupgradeneeded?.();
+      if (isNewDatabase) request.onupgradeneeded?.();
       request.onsuccess?.();
     });
     return request;
@@ -217,10 +188,6 @@ describe('SharedSecureStorage with IndexedDB', () => {
     databases.clear();
     nextOperationFailure = null;
     nextAddConflict = null;
-    nextSynchronousAddFailure = null;
-    nextOpenFailure = null;
-    nextTransactionAbort = null;
-    nextUpgrade = false;
     localStorage = new MemoryStorage();
     Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: mockIndexedDB });
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorage });
