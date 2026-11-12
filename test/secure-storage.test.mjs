@@ -124,4 +124,42 @@ test('verifyUpdateManifestSignature verifies Ed25519 signatures and key rotation
     manifestPayload: incomplete, manifestSignature: incompleteSignature }, {
     requireSignedManifest: true, fallbackPublicKey: publicKeyPem,
   }), /does not match/);
+
+  // Server verification returns false
+  const failingApi = {
+    async post() {
+      return { data: { verified: false } };
+    },
+  };
+  await assert.rejects(
+    () => verifyUpdateManifestSignature(failingApi, response, {
+      fallbackPublicKey: publicKeyPem,
+      enableServerVerification: true,
+    }),
+    /Server-side update manifest verification failed/i
+  );
+});
+
+test('password hashing throws when crypto is unavailable', async () => {
+  const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  try {
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: undefined,
+    });
+    await assert.rejects(
+      () => deriveClientPasswordHash('password', 'user'),
+      /Web Crypto is required/i
+    );
+    await assert.rejects(
+      () => hashPasswordClient('password', 'user'),
+      /Web Crypto is required/i
+    );
+  } finally {
+    if (originalCrypto) {
+      Object.defineProperty(globalThis, 'crypto', originalCrypto);
+    } else {
+      Reflect.deleteProperty(globalThis, 'crypto');
+    }
+  }
 });
