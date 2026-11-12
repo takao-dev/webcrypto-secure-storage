@@ -6,7 +6,7 @@ if (!globalThis.crypto) {
   globalThis.crypto = webcrypto;
 }
 
-import { CryptoUnavailableError, SharedSecureStorage, DEFAULT_KEY_DB_NAME, verifyUpdateManifestSignature } from '../dist/index.js';
+import { CryptoUnavailableError, SharedSecureStorage, DEFAULT_KEY_DB_NAME, verifyUpdateManifestSignature, openKeyDB } from '../dist/index.js';
 
 class MemoryStorage {
   constructor() {
@@ -41,6 +41,7 @@ class MemoryStorage {
 const databases = new Map();
 let nextOperationFailure = null;
 let nextAddConflict = null;
+let nextOpenFailure = null;
 let localStorage;
 
 const makeRequest = () => ({
@@ -56,6 +57,11 @@ const mockIndexedDB = {
     if (version !== 2) throw new Error(`Unexpected database version: ${version}`);
     const request = makeRequest();
     queueMicrotask(() => {
+      if (nextOpenFailure) {
+        request.error = nextOpenFailure;
+        request.onerror?.();
+        return;
+      }
       let stores = databases.get(databaseName);
       const isNewDatabase = !stores;
       if (!stores) {
@@ -627,5 +633,80 @@ describe('verifyUpdateManifestSignature comprehensive error cases', () => {
       manifestSigned: false,
     }, { requireSignedManifest: false, enableServerVerification: true });
     assert.equal(res, undefined);
+  });
+});
+
+describe('SharedSecureStorage cryptoAvailable and indexedDB failure paths', () => {
+  beforeEach(() => {
+    databases.clear();
+    nextOperationFailure = null;
+    nextAddConflict = null;
+    localStorage = new MemoryStorage();
+    Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: mockIndexedDB });
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorage });
+  });
+
+  afterEach(() => {
+    nextOpenFailure = null;
+    nextOperationFailure = null;
+    Reflect.deleteProperty(globalThis, 'indexedDB');
+    Reflect.deleteProperty(globalThis, 'localStorage');
+  });
+
+  it('throws CryptoUnavailableError on getMasterKey and encrypt, returns null on decrypt when cryptoAvailable is false', async () => {
+    const storage = new SharedSecureStorage('no-crypto-test-key');
+    storage.cryptoAvailable = false;
+
+    await assert.rejects(() => storage.getMasterKey(), CryptoUnavailableError);
+    await assert.rejects(() => storage.encrypt('data'), CryptoUnavailableError);
+    assert.equal(await storage.decrypt('data'), null);
+  });
+
+  it('handles IndexedDB unavailability in standalone helper paths', async () => {
+    // 1. openKeyDB rejects when indexedDB is undefined
+    const originalIDB = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+    try {
+      Reflect.deleteProperty(globalThis, 'indexedDB');
+      await assert.rejects(() => openKeyDB(), /IndexedDB is not supported/i);
+    } finally {
+      if (originalIDB) {
+        Object.defineProperty(globalThis, 'indexedDB', originalIDB);
+      }
+    }
+
+    // 2. When openKeyDB rejects, getStoredData, removeStoredData, getAllStoredDataKeys, clearStoredData, getStoredCryptoKey safely catch
+    nextOpenFailure = new Error('Database open rejected');
+    const storage = new SharedSecureStorage('fail-open-key', { allowLegacyLocalStorageKeyFallback: true });
+    assert.equal(await storage.getItem('any-key'), null);
+    await storage.removeItem('any-key');
+    assert.deepEqual(await storage.keys(), []);
+    await storage.clear();
+
+    // getStoredCryptoKey catch when openKeyDB rejects (falls back to legacy localStorage generation)
+    nextOpenFailure = new Error('Database open rejected');
+    const key = await storage.getMasterKey();
+    assert.ok(key);
+  });
+
+  it('handles storeData error during localStorage item migration', async () => {
+    const storage = new SharedSecureStorage('migration-failure-key');
+    // Pre-create the master key in IDB first
+    await storage.getMasterKey();
+
+    const encrypted = await storage.encrypt(JSON.stringify({ value: 'hello' }));
+
+    // Put into localStorage as if from an older session
+    localStorage.setItem('s_migrateFailItem', encrypted);
+
+    // Make next storeData in IndexedDB fail
+    nextOperationFailure = {
+      storeName: 'secure_data',
+      method: 'put',
+      error: new Error('Failed to put in secure_data'),
+    };
+
+    // getItem attempts to migrate to IDB, catches storeData error, and still returns the decrypted value
+    const val = await storage.getItem('migrateFailItem');
+    assert.deepEqual(val, { value: 'hello' });
   });
 });

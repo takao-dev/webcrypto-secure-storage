@@ -30,7 +30,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function openKeyDB(dbName = DEFAULT_KEY_DB_NAME): Promise<IDBDatabase> {
+export function openKeyDB(dbName = DEFAULT_KEY_DB_NAME): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
       return reject(new Error('IndexedDB is not supported in this environment'));
