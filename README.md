@@ -1,6 +1,7 @@
 # webcrypto-secure-storage
 
 [![npm version](https://img.shields.io/npm/v/webcrypto-secure-storage.svg)](https://www.npmjs.com/package/webcrypto-secure-storage)
+[![npm downloads](https://img.shields.io/npm/dw/webcrypto-secure-storage.svg)](https://www.npmjs.com/package/webcrypto-secure-storage)
 [![CI](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/ci.yml/badge.svg)](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/takao-dev/webcrypto-secure-storage/branch/main/graph/badge.svg)](https://codecov.io/gh/takao-dev/webcrypto-secure-storage)
 [![CodeQL](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/codeql.yml/badge.svg)](https://github.com/takao-dev/webcrypto-secure-storage/actions/workflows/codeql.yml)
@@ -200,6 +201,19 @@ The test suite runs with Node.js built-in test runner without external dependenc
 ```bash
 npm test
 ```
+
+---
+
+## 🔒 Related Edge Security Packages
+
+Complementary zero-dependency, high-performance security modules for Edge runtimes, Cloudflare Workers, and modern Node.js:
+
+- [wasm-crypto-hash](https://github.com/takao-dev/wasm-crypto-hash): Ultra-fast WebAssembly & WebCrypto cryptographic suite (SHA-2/3, BLAKE3, PQC, Argon2, TOTP, BIP-39).
+- [edge-rate-limiter](https://github.com/takao-dev/edge-rate-limiter): Zero-dependency sliding-window & token-bucket rate limiter with Zero-PII keyed hashing.
+- [edge-secure-token](https://github.com/takao-dev/edge-secure-token): Zero-dependency, timing-safe WebCrypto JWT suite with field-level claims encryption.
+- [edge-session-crypto](https://github.com/takao-dev/edge-session-crypto): Stateless encrypted cookie session manager with AES-GCM and key rotation.
+- [zero-pii-redactor](https://github.com/takao-dev/zero-pii-redactor): High-speed, ReDoS-free PII redactor, tokenizer, and pseudonymizer for logs and AI prompts.
+- [edge-audit-crypto](https://github.com/takao-dev/edge-audit-crypto): Tamper-evident cryptographic append-only audit trail logging.
 
 ---
 

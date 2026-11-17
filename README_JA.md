@@ -169,6 +169,17 @@ if (!isValid) {
 
 ---
 
+## 🔒 関連エッジセキュリティパッケージ群
+
+- [wasm-crypto-hash](https://github.com/takao-dev/wasm-crypto-hash): 超高速 WebAssembly & WebCrypto 暗号化スイート (SHA-2/3, BLAKE3, PQC, Argon2, TOTP, BIP-39)
+- [edge-rate-limiter](https://github.com/takao-dev/edge-rate-limiter): 外部依存ゼロの固定/スライド窓型レートリミッター（ソルト付き匿名化対応）
+- [edge-secure-token](https://github.com/takao-dev/edge-secure-token): タイミング攻撃耐性を持つ WebCrypto ベースの JWT & クレーム暗号化スイート
+- [edge-session-crypto](https://github.com/takao-dev/edge-session-crypto): AES-GCM と鍵ローテーションを備えたステートレス暗号化クッキーセッション管理
+- [zero-pii-redactor](https://github.com/takao-dev/zero-pii-redactor): ログ・AIプロンプト向けの超高速・ReDoSフリー PII マスキング＆匿名化ツール
+- [edge-audit-crypto](https://github.com/takao-dev/edge-audit-crypto): 暗号論的ハッシュチェーンによる改ざん耐性監査ログ記録
+
+---
+
 ## 📄 ライセンス
 
 MIT License © 2026 takao-dev

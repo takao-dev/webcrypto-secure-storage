@@ -2,47 +2,108 @@ name: Release & Publish
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
 
-permissions:
-  contents: write
-  id-token: write
+permissions: {}
 
 jobs:
-  release:
-    name: Build, Release & Publish to npm
+  build-and-pack:
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: Test and package
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js (22.x)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node -e 'const p = require("./package.json"); if (process.env.RELEASE_TAG !== "v" + p.version) { console.error("Release tag must match package.json version"); process.exit(1); }'
+
+      - name: Build and test
+        run: npm test
+      - name: Pack without running package scripts
+        run: mkdir -p release-artifacts && npm pack --ignore-scripts --pack-destination release-artifacts
+
+      - name: Upload npm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: release-artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-pack
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release already exists; leaving it unchanged."
+          else
+            gh release create "$RELEASE_TAG" --generate-notes --title "Release $RELEASE_TAG"
+          fi
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-pack
+    name: Publish verified package to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository for provenance metadata
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Download tested npm package
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: release-artifacts
 
       - name: Setup Node.js (22.x)
         uses: actions/setup-node@v4
         with:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build & Test
-        run: npm test
-
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create ${{ github.ref_name }} --generate-notes --title "Release ${{ github.ref_name }}" || echo "Release may already exist, proceeding..."
-
-      - name: Publish to npm with Provenance
+      - name: Publish with provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -n "$NODE_AUTH_TOKEN" ]; then
-            npm publish --provenance --access public
+          shopt -s nullglob
+          packages=(release-artifacts/*.tgz)
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            echo "Expected exactly one tested package tarball."
+            exit 1
+          fi
+          if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+            npm publish "${packages[0]}" --ignore-scripts --provenance --access public
           else
-            echo "::warning::NPM_TOKEN secret is not configured. Dry-run package test succeeded, skipping publish."
+            echo "::warning::NPM_TOKEN secret is not configured; skipping npm publish."
           fi
