@@ -25,7 +25,7 @@ Most "encrypted `localStorage`" packages on npm suffer from critical architectur
 `webcrypto-secure-storage` addresses these issues from the ground up:
 
 1. **Non-Extractable Master Keys (`extractable: false`)**:
-   Keys are generated natively via the Web Crypto API (`AES-256-GCM`, 256-bit) and stored directly in `IndexedDB` as structured cloneable `CryptoKey` objects. Because `extractable: false` is enforced by the browser engine, **the raw key bytes cannot be extracted even if arbitrary JavaScript is injected via XSS**.
+   Keys are generated natively via the Web Crypto API (`AES-256-GCM`, 256-bit) and stored directly in `IndexedDB` as structured cloneable `CryptoKey` objects. Because `extractable: false` is enforced by the browser engine, **the raw key bytes cannot be exported from the `CryptoKey` even if arbitrary JavaScript is injected via XSS**. Non-extractability does not stop active same-origin JavaScript from calling this library's APIs or reading plaintext returned to the application.
 2. **Multi-Tab First-Key Race Arbitration**:
    Uses `IDBObjectStore.add()` with atomic `ConstraintError` handling. If two tabs initialize the key store at the exact same millisecond, the losing tab catches the conflict, discards its tentative key, and loads the committed winner's key.
 3. **Fail-Closed Security**:
@@ -109,12 +109,12 @@ console.log(plainText); // 'Confidential Data'
 
 ### 3. Client Password Stretching (`PBKDF2-SHA512`)
 
-Strengthens user passwords on the client side before transmission, preventing plaintext password leakage and protecting server-side databases:
+Optionally derives a deterministic client-side PBKDF2-SHA512 pre-hash before transmission. Treat the result as a replayable password-equivalent: this does not replace HTTPS, server-side password hashing, or login rate limits. The server should still store a separately salted adaptive password hash (such as Argon2id, scrypt, or bcrypt) and apply its normal authentication protections.
 
 ```typescript
 import { hashPasswordClient, deriveClientPasswordHash } from 'webcrypto-secure-storage/password';
 
-// Uses 100,000 PBKDF2 rounds with SHA-512 and normalized loginId as salt
+// Uses 100,000 PBKDF2 rounds with SHA-512 and normalized loginId as a deterministic salt
 const clientHash = await hashPasswordClient('userPassword123', 'User@Example.com');
 console.log(clientHash); // 128-character hex string
 ```

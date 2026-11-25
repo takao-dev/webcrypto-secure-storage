@@ -25,7 +25,7 @@ npm に存在する多くの「暗号化 localStorage」ライブラリには深
 `webcrypto-secure-storage` はこれらの問題を根本から解決します：
 
 - **非抽出マスターキー (`extractable: false`)**:
-  鍵は Web Crypto API でネイティブ生成され、`extractable: false` の構造化クローン可能な `CryptoKey` オブジェクトとして `IndexedDB` に直接保管されます。ブラウザエンジンにより保護されるため、**仮に XSS で悪意あるスクリプトが注入されても生の秘密鍵バイト列を外部に持ち出すことは不可能**です。
+  鍵は Web Crypto API でネイティブ生成され、`extractable: false` の構造化クローン可能な `CryptoKey` オブジェクトとして `IndexedDB` に直接保管されます。**鍵バイト列を `CryptoKey` からエクスポートできません**。ただし、同一オリジンで動くXSSスクリプトが本ライブラリのAPIを呼び出したり、アプリに返された平文を読み取ったりすることは防げません。
 - **マルチタブ初回キー生成レース調停**:
   `IDBObjectStore.add()` と `ConstraintError` を活用し、2つのタブがミリ秒単位で同時に初期化されても、競合に敗れたタブが生成中の鍵を破棄し、コミットに成功した勝者の鍵を透過的にロードします。
 - **Fail-Closed（安全側に倒す設計）**:
@@ -121,12 +121,12 @@ console.log(`リストア成功: ${importedCount} 件のアイテムを復元し
 
 ### 4. クライアント側パスワードハッシュ導出 (`deriveClientPasswordHash`)
 
-サーバーへ平文パスワードを送信する前に、クライアント側で PBKDF2-SHA512 ストレッチングを実行し、ネットワーク経路やログでの漏洩を防止します。
+送信前にクライアント側で PBKDF2-SHA512 のプリハッシュを導出します。導出値はログインIDをソルトとして決まる再利用可能な認証秘密なので、平文パスワードの保存や送信を安全にするものではありません。HTTPSを使用し、サーバー側でもランダムな個別ソルト付きの適応型パスワードハッシュで保存し、ログイン試行を制限してください。
 
 ```typescript
 import { deriveClientPasswordHash } from 'webcrypto-secure-storage';
 
-// ログインIDをソルトとして正規化し、100,000回の PBKDF2-SHA512 でハッシュ化
+// 正規化したログインIDを決定的なソルトとして、100,000回の PBKDF2-SHA512 を実行
 const clientHash = await deriveClientPasswordHash('MySecretPassword123!', 'user@example.com');
 // -> サーバーにはこのハッシュ文字列を送信
 ```
